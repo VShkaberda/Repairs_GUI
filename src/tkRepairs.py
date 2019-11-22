@@ -207,9 +207,8 @@ class RepairApp():
         self.user_info = user_info
         self.UserID = user_info.UserID
         # Filters and other explicitly used info
-        self._create_refs(references)
-        status_list = [(1, 'Созд.'), (2, 'Пров.'), (3, 'Удал.')]
-        self.statusID, self.status_list = zip(*[(None, 'Все'),] + status_list)
+        self.refs = references
+        self._create_refs()
         self.rows = None
         self.sort_reversed_index = None  # reverse sorting for the last sorted column
 
@@ -233,11 +232,18 @@ class RepairApp():
             newlevel.geometry('+{}+{}'.format(start_x, start_y))
 
     def _clear_filters(self):
+        self.createdby_box.set('Все')
         self.status_box.set('Все')
 
-    def _create_refs(self, refs):
+    def _create_refs(self):
         """ Create references used in filters. """
-        pass
+        self.list_mfrs = ('Все', *self.refs['ListMfrs'])
+        self.list_rc = ('Все', *self.refs['ListObjects'])
+        self.list_owners = ('Все', *self.refs['ListTechnicsOwners'])
+        self.list_tech_types = ('Все', *self.refs['ListTechnicsTypes'])
+        self.list_people = ('Все', *self.refs['People'])
+        self.list_status = ('Все', *self.refs['status_list'])
+        self.list_store_types = ('Все', *self.refs['TypeStore'])
 
     def _format_float(self, sum_float):
         return '{:,.2f}'.format(sum_float).replace(',', ' ').replace('.', ',')
@@ -287,10 +293,10 @@ class RepairApp():
         #self._show_rows(rows=((123, 456, 789), ('abc', 'def', 'ghk')))
 
         msg = 'Incorrect status order for proper table formatting. '
-        assert self.status_list[1] == 'Созд.', '{}1!=Созд.'.format(msg)
-        assert self.status_list[2] == 'Пров.', '{}2!=Пров.'.format(msg)
-        assert self.status_list[3] == 'Удал.', '{}3!=Удал.'.format(msg)
-        for tag, bg in zip(self.status_list[1:4],
+        assert self.list_status[1] == 'Созд.', '{}1!=Созд.'.format(msg)
+        assert self.list_status[2] == 'Пров.', '{}2!=Пров.'.format(msg)
+        assert self.list_status[3] == 'Удал.', '{}3!=Удал.'.format(msg)
+        for tag, bg in zip(self.list_status[1:4],
                            ('#ffffc8', 'lightgreen', '#f66e6e')):
             self.table.tag_configure(tag, background=bg)
         #self.table.tag_configure('oddrow', background='lightgray')
@@ -349,9 +355,13 @@ class RepairApp():
 
         row1_cf = tk.Frame(top_main, name='row1_cf', padx=15)
 
+        createdby_label = tk.Label(row1_cf, text='Создал', padx=20)
+        self.createdby_box = ttk.Combobox(row1_cf, width=20, state='readonly')
+        self.createdby_box['values'] = self.list_people
+
         status_label = tk.Label(row1_cf, text='Статус', padx=20)
         self.status_box = ttk.Combobox(row1_cf, width=10, state='readonly')
-        self.status_box['values'] = self.status_list
+        self.status_box['values'] = self.list_status
 
         # Bottom Frame with table
         bottom_main = tk.Frame(main_frame, name='bottom_main', padx=5)
@@ -376,10 +386,12 @@ class RepairApp():
         msg = 'Heading order must be reviewed. Wrong heading: '
         assert head[3] == 'StatusID', '{}StatusID'.format(msg)
 
-        main_label.pack(side=tk.LEFT, expand=False, anchor=tk.NW)
-        self.status_box.pack(side=tk.RIGHT, padx=5, pady=5)
+        main_label.pack(side=tk.TOP, expand=False, anchor=tk.NW)
+        createdby_label.pack(side=tk.LEFT)
+        self.createdby_box.pack(side=tk.LEFT)
+        self.status_box.pack(side=tk.RIGHT)
         status_label.pack(side=tk.RIGHT)
-        row1_cf.pack(side=tk.TOP, fill=tk.X)
+        row1_cf.pack(side=tk.TOP, fill=tk.X, padx=5, pady=5)
         top_main.pack(side=tk.TOP, fill=tk.X, padx=5, pady=5)
         bottom_main.pack(side=tk.BOTTOM, fill=tk.BOTH, expand=True, padx=5, pady=5)
 
@@ -400,8 +412,8 @@ class RepairApp():
         hm = tk.Menu(help_menu, tearoff=0)
         help_menu['menu'] = hm
 
-        fm.add_command(label='Выход', underline=1,
-                       command=self.root.destroy)
+        fm.add_command(label='Выход', underline=0,
+                       command=self.root.quit_with_confirmation)
         hm.add_command(label='О программе...', underline=0,
                        command=self._show_about)
         return main_menu
