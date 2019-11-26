@@ -98,19 +98,28 @@ class DBConnect(object):
             return
 
     @monitor_network_state
-    def get_repair_list(self):
+    def get_repair_list(self, *, created_by, rc, store, owner, mfr,
+                        tech_type, status):
         """ Executes procedure and return repair list.
         """
         query = '''
-        exec technics.get_repair_list
-            '''
-        self.__cursor.execute(query)
+        exec technics.get_repair_list @created_by = ?,
+                                      @rc = ?,
+                                      @store = ?,
+                                      @owner = ?,
+                                      @mfr = ?,
+                                      @tech_type = ?,
+                                      @status = ?
+
+        '''
+        self.__cursor.execute(query, created_by, rc, store, owner, mfr,
+                              tech_type, status)
         return self.__cursor.fetchall()
 
     @monitor_network_state
     def access_check(self):
         """ Check user permission.
-            If access prmitted returns True, otherwise None.
+            If access permitted returns True, otherwise None.
         """
         self.__cursor.execute("exec [technics].[Access_Check]")
         access = self.__cursor.fetchone()

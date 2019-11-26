@@ -233,7 +233,12 @@ class RepairApp():
 
     def _clear_filters(self):
         self.createdby_box.set('Все')
+        self.rc_box.set('Все')
+        self.store_box.set('Все')
         self.status_box.set('Все')
+        self.owner_box.set('Все')
+        self.mfr_box.set('Все')
+        self.tech_type_box.set('Все')
 
     def _create_refs(self):
         """ Create references used in filters. """
@@ -251,25 +256,17 @@ class RepairApp():
     @deco_check_conn
     def _get_repair_list(self):
         """ Extract information from filters and get repairs list. """
-#        filters = {'initiator': self.initiatorsID[self.initiator_box.current()],
-#                   'mvz': self.get_mvzSAP(self.mvz_box.get()),
-#                   'office': (self.office_box.current() and
-#                              self.office[self.office_box.current()]),
-#                   'date_type': self.date_type.current(),
-#                   'date_m': self.date_entry_m.get_selected(),
-#                   'date_y': self.year.get() if self.date_entry_y.get() else 0.,
-#                   'sumtotal_from': float(self.sumtotal_from.get_float_form()
-#                                          if self.sum_entry_from.get() else 0),
-#                   'sumtotal_to': float(self.sumtotal_to.get_float_form()
-#                                        if self.sum_entry_to.get() else 0),
-#                   'nds':  self.nds.get(),
-#                   'statusID': (self.status_box.current() and
-#                              self.statusID[self.status_box.current()]),
-#                   'payment_num': self.search_by_num.get().strip()
-#                   }
-        filters = {}
-        self.rows = self.conn._get_repair_list(user_info=self.user_info,
-                                               **filters)
+        filters = {
+            'created_by': self.refs['People'].get(self.createdby_box.get(), None),
+            'rc': None if self.rc_box.get() == 'Все' else self.rc_box.get(),
+            'store': self.refs['TypeStore'].get(self.store_box.get(), None),
+            'status': self.refs['status_list'].get(self.status_box.get(), None),
+            'owner': self.refs['ListTechnicsOwners'].get(self.owner_box.get(), None),
+            'mfr': self.refs['ListMfrs'].get(self.mfr_box.get(), None),
+            'tech_type': self.refs['ListTechnicsTypes'].get(self.tech_type_box.get(), None)
+        }
+        with self.conn as sql:
+            self.rows = sql.get_repair_list(**filters)
 
     def _init_table(self, parent):
         """ Creates treeview. """
@@ -317,7 +314,8 @@ class RepairApp():
         buttons_frame = tk.Frame(self.root)
 
         bt1 = ttk.Button(buttons_frame, text="Создать запись", width=15,
-                         command=self._refresh, style='ButtonGreen.TButton')
+                         command=self._popup_create_form,
+                         style='ButtonGreen.TButton')
         bt1.pack(side=tk.LEFT, padx=15, pady=5)
 
         bt2 = ttk.Button(buttons_frame, text="Создать копию", width=15,
@@ -353,15 +351,45 @@ class RepairApp():
         main_label = tk.Label(top_main, text='Фильтры',
                               padx=10, font=('Arial', 8, 'bold'))
 
-        row1_cf = tk.Frame(top_main, name='row1_cf', padx=15)
+        row1_cf = tk.Frame(top_main, name='row1_cf')
 
-        createdby_label = tk.Label(row1_cf, text='Создал', padx=20)
+        createdby_label = tk.Label(row1_cf, text='Создал', width=12, anchor=tk.E)
         self.createdby_box = ttk.Combobox(row1_cf, width=20, state='readonly')
         self.createdby_box['values'] = self.list_people
 
-        status_label = tk.Label(row1_cf, text='Статус', padx=20)
+        rc_label = tk.Label(row1_cf, text='РЦ', width=16, anchor=tk.E)
+        self.rc_box = ttk.Combobox(row1_cf, width=20, state='readonly')
+        self.rc_box['values'] = self.list_rc
+
+        store_label = tk.Label(row1_cf, text='Склад', width=16, anchor=tk.E)
+        self.store_box = ttk.Combobox(row1_cf, width=20, state='readonly')
+        self.store_box['values'] = self.list_store_types
+
+        status_label = tk.Label(row1_cf, text='Статус', padx=40)
         self.status_box = ttk.Combobox(row1_cf, width=10, state='readonly')
         self.status_box['values'] = self.list_status
+
+        row2_cf = tk.Frame(top_main, name='row2_cf')
+
+        owner_label = tk.Label(row2_cf, text='Владелец', width=12, anchor=tk.E)
+        self.owner_box = ttk.Combobox(row2_cf, width=20, state='readonly')
+        self.owner_box['values'] = self.list_owners
+
+        mfr_label = tk.Label(row2_cf, text='Производитель', width=16, anchor=tk.E)
+        self.mfr_box = ttk.Combobox(row2_cf, width=20, state='readonly')
+        self.mfr_box['values'] = self.list_mfrs
+
+        tech_type_label = tk.Label(row2_cf, text='Тип техники', width=16, anchor=tk.E)
+        self.tech_type_box = ttk.Combobox(row2_cf, width=20, state='readonly')
+        self.tech_type_box['values'] = self.list_tech_types
+
+        bt02 = ttk.Button(row2_cf, text="Очистить", width=15,
+                          command=self._clear_filters)
+        bt02.pack(side=tk.RIGHT)
+
+        bt01 = ttk.Button(row2_cf, text="Обновить", width=15,
+                          command=self._refresh)
+        bt01.pack(side=tk.RIGHT, padx=20)
 
         # Bottom Frame with table
         bottom_main = tk.Frame(main_frame, name='bottom_main', padx=5)
@@ -387,11 +415,22 @@ class RepairApp():
         assert head[3] == 'StatusID', '{}StatusID'.format(msg)
 
         main_label.pack(side=tk.TOP, expand=False, anchor=tk.NW)
-        createdby_label.pack(side=tk.LEFT)
-        self.createdby_box.pack(side=tk.LEFT)
+        createdby_label.pack(side=tk.LEFT, padx=5)
+        self.createdby_box.pack(side=tk.LEFT, padx=10)
+        rc_label.pack(side=tk.LEFT)
+        self.rc_box.pack(side=tk.LEFT, padx=10)
+        store_label.pack(side=tk.LEFT)
+        self.store_box.pack(side=tk.LEFT, padx=10)
         self.status_box.pack(side=tk.RIGHT)
         status_label.pack(side=tk.RIGHT)
-        row1_cf.pack(side=tk.TOP, fill=tk.X, padx=5, pady=5)
+        row1_cf.pack(side=tk.TOP, fill=tk.X, padx=20, pady=10)
+        owner_label.pack(side=tk.LEFT, padx=5)
+        self.owner_box.pack(side=tk.LEFT, padx=10)
+        mfr_label.pack(side=tk.LEFT)
+        self.mfr_box.pack(side=tk.LEFT, padx=10)
+        tech_type_label.pack(side=tk.LEFT)
+        self.tech_type_box.pack(side=tk.LEFT, padx=10)
+        row2_cf.pack(side=tk.TOP, fill=tk.X, padx=20, pady=5)
         top_main.pack(side=tk.TOP, fill=tk.X, padx=5, pady=5)
         bottom_main.pack(side=tk.BOTTOM, fill=tk.BOTH, expand=True, padx=5, pady=5)
 
@@ -415,7 +454,7 @@ class RepairApp():
         fm.add_command(label='Выход', underline=0,
                        command=self.root.quit_with_confirmation)
         hm.add_command(label='О программе...', underline=0,
-                       command=self._show_about)
+                       command=self._popup_about)
         return main_menu
 
     def _make_status_frame(self):
@@ -424,6 +463,17 @@ class RepairApp():
         bottom_frame = tk.Frame(self.root)
         self._add_user_label(bottom_frame)
         return bottom_frame
+
+    def _popup_about(self, event=None):
+        """ Raise frame with info about app. """
+        self._raise_Toplevel(frame=AboutFrame,
+                             title='Ремонт техники v. ' + __version__,
+                             width=400, height=140)
+
+    def _popup_create_form(self, event=None):
+        self._raise_Toplevel(frame=CreateFrame,
+                             title='Создать запись',
+                             width=400, height=140)
 
     def _raise_Toplevel(self, frame, title, width, height,
                         static_geometry=True, options=()):
@@ -449,15 +499,10 @@ class RepairApp():
 
     def _refresh(self):
         """ Refresh repairs information. """
-        with self.conn as sql:
-            self.rows = sql.get_repair_list()
+        #with self.conn as sql:
+        #    self.rows = sql.get_repair_list(user_info=None)
+        self._get_repair_list()
         self._show_rows(self.rows)
-
-    def _show_about(self, event=None):
-        """ Raise frame with info about app. """
-        self._raise_Toplevel(frame=AboutFrame,
-                             title='Ремонт техники v. ' + __version__,
-                             width=400, height=140)
 
     def _show_rows(self, rows):
         """ Refresh table with new rows. """
@@ -554,6 +599,44 @@ class AboutFrame(tk.Frame):
         self.bt.pack(side=tk.BOTTOM, pady=2)
         self.top.pack(side=tk.TOP, fill=tk.BOTH, expand=True, padx=10)
         self.logo_label.pack(side=tk.LEFT, padx=10, pady=2)
+        self.copyright_text.pack(side=tk.LEFT, padx=10, pady=10)
+        self.pack(fill=tk.BOTH, expand=True, pady=5)
+
+
+class CreateFrame(tk.Frame):
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.top = tk.Frame(self, name='top_cf')
+
+        self.copyright_text = tk.Text(self.top, bg='#f1f1f1',
+                                      font=('Arial', 8), relief=tk.FLAT)
+        self.copyright_text.insert(tk.INSERT,
+                                  'Ремонт техники v. ' + __version__ +'\n')
+
+        self.bottom = tk.Frame(self, name='bottom_cf')
+
+        bt1 = ttk.Button(self.bottom, text="Создать", width=15,
+                         command=self._create, style='ButtonGreen.TButton')
+        bt1.pack(side=tk.LEFT)
+
+        bt2 = ttk.Button(self.bottom, text="Очистить", width=15,
+                         command=self.parent.destroy)
+        bt2.pack(side=tk.LEFT, padx=20)
+
+        bt3 = ttk.Button(self.bottom, text="Выход", width=15,
+                         command=self.parent.destroy)
+        bt3.pack(side=tk.RIGHT, padx=20)
+
+        self.pack_all()
+
+    def _create(self):
+        """ Create repair according to filled fields.
+        """
+        pass
+
+    def pack_all(self):
+        self.top.pack(side=tk.TOP, fill=tk.BOTH, expand=True, padx=10)
+        self.bottom.pack(side=tk.BOTTOM, fill=tk.X, expand=True, padx=10)
         self.copyright_text.pack(side=tk.LEFT, padx=10, pady=10)
         self.pack(fill=tk.BOTH, expand=True, pady=5)
 

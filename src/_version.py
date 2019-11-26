@@ -1,4 +1,4 @@
-version_info = (0, 1, 1)
+version_info = (0, 2, 1)
 __title__ = 'Repairs GUI'
 __description__ = 'GUI to manage repair list.'
 __url__ = 'https://github.com/VShkaberda/Repairs_GUI'
