@@ -6,7 +6,8 @@ Created on Wed Nov 20 13:06:13 2019
 """
 
 from _version import __version__
-from datetime import date, datetime
+from autocomplete_entry import AutocompleteEntry
+from datetime import datetime
 from decimal import Decimal
 from functools import wraps
 from tkcalendar import DateEntry
@@ -132,6 +133,15 @@ class UnexpectedError(tk.Tk):
         )
         self.destroy()
 
+class StringSumVar(tk.StringVar):
+    """ Contains function that returns var formatted in a such way, that
+        it can be converted into a float without an error.
+    """
+    def get_float_form(self, *args, **kwargs):
+        return (super().get(*args, **kwargs).replace(' ', '')
+                                            .replace('\n', '')
+                                            .replace(',', '.'))
+
 
 class RepairTk(tk.Tk):
     def __init__(self, *args, **kwargs):
@@ -140,6 +150,8 @@ class RepairTk(tk.Tk):
         self.iconbitmap('resources/repairs.ico')
         # handle the window close event
         self.protocol("WM_DELETE_WINDOW", self.quit_with_confirmation)
+        # extend Ctrc+C/V/X to other keyboards
+        self.bind_all("<Key>", self._onKeyRelease, '+')
         # Customize header style (used in PreviewForm)
         style = ttk.Style()
         style.element_create("HeaderStyle.Treeheading.border", "from", "default")
@@ -174,6 +186,18 @@ class RepairTk(tk.Tk):
         start_y = int((screen_height/2) - (h*0.55))
 
         self.geometry('{}x{}+{}+{}'.format(w, h, start_x, start_y))
+
+    def _onKeyRelease(*args):
+        event = args[1]
+        # check if Ctrl pressed
+        if not (event.state == 12 or event.state == 14):
+            return
+        if event.keycode == 88 and event.keysym.lower() != 'x':
+            event.widget.event_generate("<<Cut>>")
+        elif event.keycode == 86 and event.keysym.lower() != 'v':
+            event.widget.event_generate("<<Paste>>")
+        elif event.keycode == 67 and event.keysym.lower() != 'c':
+            event.widget.event_generate("<<Copy>>")
 
     def quit_with_confirmation(self):
         if messagebox.askokcancel("Выход", "Выйти из приложения?"):
@@ -291,7 +315,7 @@ class RepairApp():
 
         msg = 'Incorrect status order for proper table formatting. '
         assert self.list_status[1] == 'Созд.', '{}1!=Созд.'.format(msg)
-        assert self.list_status[2] == 'Пров.', '{}2!=Пров.'.format(msg)
+        assert self.list_status[2] == 'Фикс.', '{}2!=Фикс.'.format(msg)
         assert self.list_status[3] == 'Удал.', '{}3!=Удал.'.format(msg)
         for tag, bg in zip(self.list_status[1:4],
                            ('#ffffc8', 'lightgreen', '#f66e6e')):
@@ -322,8 +346,8 @@ class RepairApp():
                          command=self.root.destroy)
         bt2.pack(side=tk.LEFT, padx=15, pady=5)
 
-        bt3 = ttk.Button(buttons_frame, text="Удалить запись", width=15,
-                         command=self.root.destroy, style='ButtonRed.TButton')
+        bt3 = ttk.Button(buttons_frame, text="Редактировать", width=15,
+                         command=self.root.destroy)
         bt3.pack(side=tk.LEFT, padx=15, pady=5)
 
         bt4 = ttk.Button(buttons_frame, text="Переместить технику", width=20,
@@ -470,14 +494,30 @@ class RepairApp():
                              title='Ремонт техники v. ' + __version__,
                              width=400, height=140)
 
+    @deco_check_conn
     def _popup_create_form(self, event=None):
+        with self.conn as sql:
+            tech_info = sql.get_technics_info()
+            tech_info = dict((data[0], data[1:]) for data in tech_info)
+            measure_units = sql.get_measure_units()
+            measure_units = dict((data[0], data[1]) for data in measure_units)
+            objects = sql.get_objects()
+            objects = dict((data[1:], data[0]) for data in objects)
+        options = {'conn': self.conn,
+                   'userID': self.UserID,
+                   'tech_info': tech_info,
+                   'measure_units': measure_units,
+                   'objects': objects}
         self._raise_Toplevel(frame=CreateFrame,
-                             title='Создать запись',
-                             width=400, height=140)
+                             title='Данные о ремонте',
+                             width=800, height=400,
+                             static_geometry=False,
+                             refresh_after=True,
+                             options=options)
 
     def _raise_Toplevel(self, frame, title, width, height,
-                        static_geometry=True, options=()):
-        """ Create and raise new frame with limits.
+                        static_geometry=True, refresh_after=False, options={}):
+        """ Create and raise Toplevel with Frame.
         Input:
         frame - class, Frame class to be drawn in Toplevel;
         title - str, window title;
@@ -485,22 +525,26 @@ class RepairApp():
         height - int, height parameter to center window;
         static_geometry - bool, if True - width and height will determine size
             of window, otherwise size will be determined dynamically;
-        options - tuple, arguments that will be sent to frame.
+        refresh_after - bool, if True - call self._refresh() after Toplevel
+            is destroyed;
+        options - dictionary, kwargs that will be sent to frame.
         """
         newlevel = tk.Toplevel(self.root)
         newlevel.transient(self.root)  # disable minimize/maximize buttons
         newlevel.title(title)
         newlevel.bind('<Escape>', lambda e, w=newlevel: w.destroy())
-        frame(newlevel, *options)
+        frame(newlevel, **options)
         newlevel.resizable(width=False, height=False)
         self._center_popup_window(newlevel, width, height, static_geometry)
         newlevel.focus()
         newlevel.grab_set()
+        if refresh_after:
+            self.root.wait_window(newlevel)
+            print('refreshing...')
+            self._refresh()
 
     def _refresh(self):
         """ Refresh repairs information. """
-        #with self.conn as sql:
-        #    self.rows = sql.get_repair_list(user_info=None)
         self._get_repair_list()
         self._show_rows(self.rows)
 
@@ -604,41 +648,445 @@ class AboutFrame(tk.Frame):
 
 
 class CreateFrame(tk.Frame):
-    def __init__(self, parent):
+    def __init__(self, parent, conn, userID, tech_info, measure_units, objects):
+        # hide until all frames have been created
+        parent.withdraw()
         super().__init__(parent)
-        self.top = tk.Frame(self, name='top_cf')
+        self.parent = parent
+        self.conn = conn
+        self.UserID = userID
+        self.tech_info = tech_info
+        self.measure_units = measure_units
+        self.measure_units_list = (*self.measure_units,)
+        self.objects = objects
+        self.allowed_objects = None
+        # parameter to control SN correctness to prevent _create execution
+        self.is_sn_correct = False
 
-        self.copyright_text = tk.Text(self.top, bg='#f1f1f1',
-                                      font=('Arial', 8), relief=tk.FLAT)
-        self.copyright_text.insert(tk.INSERT,
-                                  'Ремонт техники v. ' + __version__ +'\n')
+        main_label = tk.Label(self, text='Данные о ремонте', width=20,
+                              anchor=tk.CENTER, font=('Arial', 12, 'bold'))
+        main_label.grid(row=0, column=0, columnspan=4, pady=10, padx=20)
 
-        self.bottom = tk.Frame(self, name='bottom_cf')
+        sn_label = tk.Label(self, text='Серийный номер',
+                              anchor=tk.E, font=('Arial', 8, 'bold'))
+        sn_label.grid(row=1, column=0, pady=5, padx=20, sticky=tk.E)
 
-        bt1 = ttk.Button(self.bottom, text="Создать", width=15,
-                         command=self._create, style='ButtonGreen.TButton')
-        bt1.pack(side=tk.LEFT)
+        self.sn_entry = AutocompleteEntry(list(self.tech_info.keys()),
+                                     self, width=30)
+        self.sn_entry.bind("<FocusOut>", self._check_SN)
+        self.sn_entry.grid(row=1, column=1, pady=5, padx=5)
 
-        bt2 = ttk.Button(self.bottom, text="Очистить", width=15,
-                         command=self.parent.destroy)
-        bt2.pack(side=tk.LEFT, padx=20)
+        outfitorder_label = tk.Label(self, text='Наряд-заказ',
+                              anchor=tk.E, font=('Arial', 8, 'bold'))
+        outfitorder_label.grid(row=1, column=2, pady=5, padx=20, sticky=tk.EW)
 
-        bt3 = ttk.Button(self.bottom, text="Выход", width=15,
-                         command=self.parent.destroy)
-        bt3.pack(side=tk.RIGHT, padx=20)
+        self.outfitorder = tk.StringVar()
+        outfitorder_entry = tk.Entry(self, width=30,
+                                     textvariable=self.outfitorder)
+        outfitorder_entry.grid(row=1, column=3, pady=5, padx=5)
 
-        self.pack_all()
+        tech_type_label = tk.Label(self, text='Вид техники',
+                              anchor=tk.E, font=('Arial', 8, 'bold'))
+        tech_type_label.grid(row=2, column=0, pady=5, padx=20, sticky=tk.E)
 
-    def _create(self):
-        """ Create repair according to filled fields.
+        self.tech_type = tk.StringVar()
+        tech_type_entry = tk.Entry(self, width=30, state='readonly', takefocus=0,
+                                   textvariable=self.tech_type)
+        tech_type_entry.grid(row=2, column=1, pady=5, padx=5)
+
+        model_label = tk.Label(self, text='Модель',
+                              anchor=tk.E, font=('Arial', 8, 'bold'))
+        model_label.grid(row=2, column=2, pady=5, padx=20, sticky=tk.EW)
+
+        self.model = tk.StringVar()
+        model_entry = tk.Entry(self, width=30, state='readonly', takefocus=0,
+                               textvariable=self.model)
+        model_entry.grid(row=2, column=3, pady=5, padx=5)
+
+        owner_label = tk.Label(self, text='Владелец',
+                              anchor=tk.E, font=('Arial', 8, 'bold'))
+        owner_label.grid(row=3, column=0, pady=5, padx=20, sticky=tk.E)
+
+        self.owner = tk.StringVar()
+        owner_entry = tk.Entry(self, width=30, state='readonly', takefocus=0,
+                               textvariable=self.owner)
+        owner_entry.grid(row=3, column=1, pady=5, padx=5)
+
+        mfr_label = tk.Label(self, text='Производитель',
+                              anchor=tk.E, font=('Arial', 8, 'bold'))
+        mfr_label.grid(row=3, column=2, pady=5, padx=20, sticky=tk.EW)
+
+        self.mfr = tk.StringVar()
+        mfr_entry = tk.Entry(self, width=30, state='readonly', takefocus=0,
+                             textvariable=self.mfr)
+        mfr_entry.grid(row=3, column=3, pady=5, padx=5)
+
+        date_broken_label = tk.Label(self, text='Дата поломки',
+                              anchor=tk.E, font=('Arial', 8, 'bold'))
+        date_broken_label.grid(row=5, column=0, pady=5, padx=20, sticky=tk.E)
+
+        self.date_broken = tk.StringVar()
+        self.date_broken_entry = DateEntry(self, width=23, state='disabled',
+            background='#2888e8', foreground='white', selectbackground ='#2888e8',
+            font=('Arial', 9), selectmode='day', borderwidth=2, locale='ru_RU',
+            textvariable=self.date_broken)
+        self.date_broken.set('')
+        self.date_broken_entry.bind("<FocusOut>", self._get_rc_and_store)
+        #self.date_broken.trace("w", self._get_rc_and_store)
+        self.date_broken_entry.grid(row=5, column=1, pady=5, padx=5)
+
+        workhours_label = tk.Label(self, text='Текущие моточасы',
+                              anchor=tk.E, font=('Arial', 8, 'bold'))
+        workhours_label.grid(row=5, column=2, pady=5, padx=20, sticky=tk.E)
+
+        self.workhours = StringSumVar()
+        workhours_entry = tk.Entry(self, width=30,
+                                   textvariable=self.workhours)
+        workhours_entry.grid(row=5, column=3, pady=5, padx=5)
+
+        rc_label = tk.Label(self, text='РЦ',
+                              anchor=tk.E, font=('Arial', 8, 'bold'))
+        rc_label.grid(row=6, column=0, pady=5, padx=20, sticky=tk.E)
+
+        self.rc = tk.StringVar()
+        self.rc_box = ttk.Combobox(self, width=27, state='disabled',
+                                   textvariable=self.rc)
+        self.rc_box.grid(row=6, column=1, pady=5, padx=5)
+
+        store_label = tk.Label(self, text='Склад',
+                              anchor=tk.E, font=('Arial', 8, 'bold'))
+        store_label.grid(row=6, column=2, pady=5, padx=20, sticky=tk.EW)
+
+        self.store = tk.StringVar()
+        self.store_box = ttk.Combobox(self, width=27, state='disabled',
+                                   textvariable=self.store)
+        self.store_box.grid(row=6, column=3, pady=5, padx=5)
+
+        number_units_label = tk.Label(self, text='Кол-во запчастей',
+                              anchor=tk.E, font=('Arial', 8, 'bold'))
+        number_units_label.grid(row=7, column=0, pady=5, padx=20, sticky=tk.E)
+
+        self.number_units = StringSumVar()
+        number_units_entry = tk.Entry(self, width=30,
+                                      textvariable=self.number_units)
+        number_units_entry.grid(row=7, column=1, pady=5, padx=5)
+
+        units_measure_label = tk.Label(self, text='Единица измерения',
+                              anchor=tk.E, font=('Arial', 8, 'bold'))
+        units_measure_label.grid(row=7, column=2, pady=5, padx=20, sticky=tk.EW)
+
+        self.units_measure = tk.StringVar()
+        self.units_measure_box = ttk.Combobox(self, width=27, state='readonly',
+                                              textvariable=self.units_measure)
+        self.units_measure_box['values'] = self.measure_units_list
+        self.units_measure.set('не указано')
+        self.units_measure_box.grid(row=7, column=3, pady=5, padx=5)
+
+        faultdesc_label = tk.Label(self, text='Описание неисправности',
+                              anchor=tk.E, font=('Arial', 8, 'bold'))
+        faultdesc_label.grid(row=8, column=0, pady=5, padx=20, sticky=tk.E)
+
+        self.faultdesc = tk.StringVar()
+        faultdesc_entry = tk.Entry(self, width=89,
+                                   textvariable=self.faultdesc)
+        faultdesc_entry.grid(row=8, column=1, columnspan=3, pady=5)
+
+        perfwork_label = tk.Label(self, text='Проведённые работы',
+                              anchor=tk.E, font=('Arial', 8, 'bold'))
+        perfwork_label.grid(row=9, column=0, pady=5, padx=20, sticky=tk.E)
+
+        self.perfwork = tk.StringVar()
+        perfwork_entry = tk.Entry(self, width=89,
+                                  textvariable=self.perfwork)
+        perfwork_entry.grid(row=9, column=1, columnspan=3, pady=5)
+
+        date_repair_end_label = tk.Label(self, text='Дата окончания ремонта',
+                              anchor=tk.E, font=('Arial', 8, 'bold'))
+        date_repair_end_label.grid(row=10, column=1, pady=5, padx=20, sticky=tk.EW)
+
+        self.date_repair_end_active = tk.IntVar()
+        date_repair_end_cbox = tk.Checkbutton(self, anchor=tk.W,
+                                              variable=self.date_repair_end_active,
+                                              command=self._toggle_date_repair_end)
+        date_repair_end_cbox.grid(row=10, column=2, pady=5, sticky=tk.W)
+        self.date_repair_end_active.set(1)
+
+        self.date_repair_end = tk.StringVar()
+        self.date_repair_end_entry = DateEntry(self, width=9, state='readonly',
+            background='#2888e8', foreground='white', selectbackground ='#2888e8',
+            font=('Arial', 9), selectmode='day', borderwidth=2, locale='ru_RU',
+            textvariable=self.date_repair_end)
+        self.date_repair_end_entry.grid(row=10, column=2, pady=5, padx=10)
+
+        self._make_buttons()
+
+        self.pack(fill=tk.BOTH, expand=True, padx=30, pady=5)
+        # restore after withdraw
+        parent.deiconify()
+
+    def _check_SN(self, event):
+        self.date_broken.set('')
+        self.rc.set('')
+        self.store.set('')
+        sn = self.sn_entry.get()
+        objs = (self.tech_type, self.model, self.owner, self.mfr)
+        # determine widget name focused next
+        new_focus = str(self.focus_get()).split('!')[-1]
+        # ignore check for inner listbox / clear and exit buttons
+        # include 'None' to ignore check if user clicked outside CreateFrame
+        if not sn or new_focus in ('None', 'lbox', 'button3', 'button4'):
+            self.date_broken_entry.configure(state='disabled')
+            self._set_rc_and_store_state(state="disabled")
+            for obj in objs:
+                obj.set('')
+            return
+        try:
+            for obj, val in zip(objs, self.tech_info[sn]):
+                obj.set(val)
+            self.date_broken_entry.configure(state='readonly')
+            self.is_sn_correct = True
+        except KeyError:
+            messagebox.showinfo(
+                'Серийный номер',
+                'Серийный номер не найден'
+            )
+            for obj in objs:
+                obj.set('')
+            self.sn_entry.focus_set()
+            self.sn_entry.event_generate('<<SelectAll>>')
+            self.date_broken_entry.configure(state='disabled')
+            self.is_sn_correct = False
+
+    def _clear_all(self):
+        self.sn_entry.var.set('')
+        self.outfitorder.set('')
+        self.tech_type.set('')
+        self.model.set('')
+        self.owner.set('')
+        self.mfr.set('')
+        self.date_broken.set('')
+        self.date_broken_entry.configure(state='disabled')
+        self.workhours.set('')
+        self.rc.set('')
+        self.store.set('')
+        self.number_units.set('')
+        self.units_measure.set('не указано')
+        self.faultdesc.set('')
+        self.perfwork.set('')
+        self.date_repair_end.set('')
+        self.is_sn_correct = False
+
+    # deprecated
+    def _clear_calendar(self, event, wname):
+        if wname == 'date_broken':
+            self.date_broken.set('')
+        elif wname == 'date_repair_end':
+            self.date_repair_end.set('')
+
+    def _convert_date(self, date_in, output=None):
+        """ Take date_in and convert it into output format.
+            If output is None datetime object is returned.
+
+            date: str in format '%d[./]%m[./]%y' or '%d[./]%m[./]%Y'.
+            output: str or None, output format.
         """
-        pass
+        date_in = date_in.replace('/', '.')
+        try:
+            dat = datetime.strptime(date_in, '%d.%m.%y')
+        except ValueError:
+            dat = datetime.strptime(date_in, '%d.%m.%Y')
+        if output:
+            return dat.strftime(output)
+        return dat
 
-    def pack_all(self):
-        self.top.pack(side=tk.TOP, fill=tk.BOTH, expand=True, padx=10)
-        self.bottom.pack(side=tk.BOTTOM, fill=tk.X, expand=True, padx=10)
-        self.copyright_text.pack(side=tk.LEFT, padx=10, pady=10)
-        self.pack(fill=tk.BOTH, expand=True, pady=5)
+    def _create(self, is_fixed=False):
+        """ Create repair according to filled fields.
+            is_fixed - bool, determines StatusID of repair.
+        """
+        # since sn is checked in _check_SN using <FocusOut> of self.sn_entry
+        # just prevent execution istead of raising message
+        if not self.is_sn_correct:
+            return
+        messagetitle = 'Данные о ремонте'
+        is_validated = self._validate_repair_info(messagetitle)
+        if not is_validated:
+            return
+        repair_info = self._get_repair_info()
+        statusID = 2 if is_fixed else 1
+        if is_fixed:
+            confirmed = messagebox.askyesno(title='Подтвердите фиксацию',
+                message='Создать заявку без возможности редактировать в будущем?')
+            if not confirmed:
+                return
+        with self.conn as sql:
+            created_success = sql.create_repair(userID=self.UserID,
+                                                **repair_info,
+                                                statusID=statusID)
+        if created_success == 1:
+            messagebox.showinfo(
+                    messagetitle, 'Данные внесены'
+            )
+            self.parent.destroy()
+        else:
+            messagebox.showerror(
+                    messagetitle, 'Произошла ошибка'
+            )
+
+    def _get_repair_info(self):
+        """ Takes info from filled fields and returns it as dictionary
+             in format appropriated for server.
+        """
+        workhours = self.workhours.get_float_form()
+        number_units = self.number_units.get_float_form()
+        units_m = self.units_measure.get()
+        date_broken = self.date_broken_entry.get_date()
+        date_broken = datetime.combine(date_broken, datetime.min.time())
+        try:
+            objectID = self.objects[(self.rc.get(), self.store.get())]
+        except KeyError as e:
+            messagebox.showerror(title='Ошибка',
+                            message=('Некорректный объект:\n{}'
+                                     .format(e))
+                                )
+            raise
+        repair_info = {
+            'SN': self.sn_entry.get().strip(),
+            'ObjectID': objectID,
+            'date_broken': self._convert_date(self.date_broken.get()),
+            'date_repair_finished': (self._convert_date(self.date_broken.get())
+                if self.date_repair_end_active.get() else None),
+            'OutfitOrder': self.outfitorder.get().strip() or None,
+            'WorkingHours': (float(workhours) if workhours else None),
+            'UnitOfMeasureID': self.measure_units[units_m] if units_m else None,
+            'NumberOfUnits': (float(number_units) if number_units else None),
+            'FaultDescription': self.faultdesc.get().strip() or None,
+            'PerformedWork': self.perfwork.get().strip() or None
+            }
+        return repair_info
+
+    def _get_rc_and_store(self, *args, **kwargs):
+        """ Shows rc and store that corresponds to chosen date and serial num.
+            If 1 option is available, choose it, otherwise make box active.
+        """
+        sn = self.sn_entry.get()
+        new_focus = str(self.focus_get()).split('!')[-1]
+        # do nothing if user clicked on calendar or clear/exit buttons
+        # include 'None' to ignore check if user clicked outside CreateFrame
+        if new_focus in ('None', 'calendar', 'button3', 'button4'):
+            self.rc.set('')
+            self.store.set('')
+            self._set_rc_and_store_state(state="disabled")
+            return
+        try:
+            date_broken = self._convert_date(self.date_broken.get())
+        except Exception as e:
+            return
+        if not date_broken:
+            return
+        with self.conn as sql:
+            self.allowed_objects = sql.get_allowed_rc_and_store(sn, date_broken)
+        if len(self.allowed_objects) == 0:
+            messagebox.showinfo(title='Нет привязки',
+                message=('В указанную дату техника не привязана ни к одному РЦ')
+                                )
+        elif len(self.allowed_objects) == 1:
+            self.rc.set(self.allowed_objects[0][0])
+            self.store.set(self.allowed_objects[0][1])
+            self._set_rc_and_store_state(state="disabled")
+        else:
+            self.rc.set('')
+            self.store.set('')
+            self.rc_box['values'], self.store_box['values'] = (*zip(*self.allowed_objects),)
+            self._set_rc_and_store_state(state="readonly")
+
+    def _make_buttons(self):
+        bt1 = ttk.Button(self, text='Сохранить', width=26,
+                         command=self._create, style='ButtonGreen.TButton')
+        bt1.grid(row=11, column=0, pady=10)
+
+        bt2 = ttk.Button(self, text='Сохранить (зафиксировать)', width=26,
+                         command=lambda: self._create(is_fixed=True),
+                         style='ButtonGreen.TButton')
+        bt2.grid(row=11, column=1, pady=10)
+
+        bt3 = ttk.Button(self, text='Очистить всё', width=15,
+                         command=self._clear_all)
+        bt3.grid(row=11, column=2, pady=10)
+
+        bt4 = ttk.Button(self, text='Закрыть', width=15,
+                         command=self.parent.destroy)
+        bt4.grid(row=11, column=3, pady=10, padx=10, sticky=tk.E)
+
+    def _set_rc_and_store_state(self, state):
+        """ Change set of rc and store boxes to "state"."""
+        self.rc_box.configure(state=state)
+        self.store_box.configure(state=state)
+
+    def _toggle_date_repair_end(self):
+        """ Toggle states of self.date_repair_end_entry.
+        """
+        if self.date_repair_end_active.get():
+            self.date_repair_end_entry.configure(state="readonly")
+        else:
+            self.date_repair_end_entry.configure(state="disabled")
+
+    def _validate_repair_info(self, messagetitle):
+        """ Validate correctness of filled fields. Returns bool.
+        """
+        try:
+            float(self.workhours.get_float_form() or 0)
+        except ValueError:
+            messagebox.showerror(
+                    messagetitle, 'Некорректно заполнено: Моточасы'
+            )
+            return False
+        try:
+            number_units = float(self.number_units.get_float_form() or 0)
+        except ValueError:
+            messagebox.showerror(
+                    messagetitle, 'Некорректно заполнено: Кол-во запчастей'
+            )
+            return False
+        if number_units and not self.units_measure.get():
+            messagebox.showerror(
+                    messagetitle, 'Не указана ед. измерения запчастей'
+            )
+            return False
+        if not self.rc.get():
+            messagebox.showerror(
+                    messagetitle, 'Не указано РЦ'
+            )
+            return False
+        if not self.store.get():
+            messagebox.showerror(
+                    messagetitle, 'Не указан склад'
+            )
+            return False
+        date_validation = self._validate_date_broken()
+        if date_validation == 'incorrect_date':
+            messagebox.showerror(
+                    messagetitle,
+                    'Дата поломки некорректна или не заполнена'
+            )
+            return False
+        elif date_validation != 'correct_date':
+            messagebox.showerror(title='Ошибка',
+                            message=('Возникло непредвиденное исключение\n{}'
+                                     .format(date_validation))
+                                )
+            return False
+        return True
+
+    def _validate_date_broken(self):
+        """ Validate date correctness. """
+        try:
+            date_broken = self.date_broken.get()
+            self._convert_date(date_broken)
+            return 'correct_date'
+        except ValueError:
+            return 'incorrect_date'
+        except Exception as e:
+            return e
 
 
 if __name__ == '__main__':
@@ -648,10 +1096,10 @@ if __name__ == '__main__':
     UserInfo = namedtuple('UserInfo', ['UserID', 'ShortUserName',
                                        'AccessType', 'isSuperUser'])
     conn = DBConnect(server='s-kv-center-s59', db='AnalyticReports')
-    root = RepairTk()
-    app = RepairApp(root=root,
-                    connection=conn,
-                    user_info=UserInfo(24, 'TestName', 1, 1),
-                    references = {}
-                    )
-    app.run()
+#    root = RepairTk()
+#    app = RepairApp(root=root,
+#                    connection=conn,
+#                    user_info=UserInfo(24, 'TestName', 1, 1),
+#                    references = {}
+#                    )
+#    app.run()

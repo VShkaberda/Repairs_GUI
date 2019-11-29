@@ -66,10 +66,10 @@ class DBConnect(object):
             return
 
     @monitor_network_state
-    def create_repair(self, userID, SN, ObjectID, date_broken,
+    def create_repair(self, *, userID, SN, ObjectID, date_broken,
                       date_repair_finished, OutfitOrder, WorkingHours,
                       UnitOfMeasureID, NumberOfUnits, FaultDescription,
-                      PerformedWork, StatusID):
+                      PerformedWork, statusID):
         """ Executes procedure that creates new repair.
         """
         query = '''
@@ -90,12 +90,55 @@ class DBConnect(object):
             self.__cursor.execute(query, userID, SN, ObjectID, date_broken,
                       date_repair_finished, OutfitOrder, WorkingHours,
                       UnitOfMeasureID, NumberOfUnits, FaultDescription,
-                      PerformedWork, StatusID)
+                      PerformedWork, statusID)
             request_success = self.__cursor.fetchone()[0]
             self.__db.commit()
             return request_success
         except pyodbc.ProgrammingError:
             return
+
+    @monitor_network_state
+    def access_check(self):
+        """ Check user permission.
+            If access permitted returns True, otherwise None.
+        """
+        self.__cursor.execute("exec [technics].[Access_Check]")
+        access = self.__cursor.fetchone()
+        # check AccessType and isSuperUser
+        if access and (access[0] in (1, 2, 3) or access[1]):
+            return True
+
+    @monitor_network_state
+    def get_allowed_rc_and_store(self, sn, date_broken):
+        """ Returns unis of measure list.
+        """
+        query = '''
+        exec [technics].[get_allowed_rc_and_store] @SN = ?,
+                                                   @date_broken = ?
+        '''
+        self.__cursor.execute(query, sn, date_broken)
+        return self.__cursor.fetchall()
+
+    @monitor_network_state
+    def get_measure_units(self):
+        """ Returns unis of measure list.
+        """
+        self.__cursor.execute("exec [technics].[get_measure_units]")
+        return self.__cursor.fetchall()
+
+    @monitor_network_state
+    def get_objects(self):
+        """ Returns all references used in filters.
+        """
+        self.__cursor.execute("exec [technics].[get_objects]")
+        return self.__cursor.fetchall()
+
+    @monitor_network_state
+    def get_references(self):
+        """ Returns all references used in filters.
+        """
+        self.__cursor.execute("exec [technics].[get_references]")
+        return self.__cursor.fetchall()
 
     @monitor_network_state
     def get_repair_list(self, *, created_by, rc, store, owner, mfr,
@@ -117,28 +160,10 @@ class DBConnect(object):
         return self.__cursor.fetchall()
 
     @monitor_network_state
-    def access_check(self):
-        """ Check user permission.
-            If access permitted returns True, otherwise None.
+    def get_technics_info(self):
+        """ Returns technics info.
         """
-        self.__cursor.execute("exec [technics].[Access_Check]")
-        access = self.__cursor.fetchone()
-        # check AccessType and isSuperUser
-        if access and (access[0] in (1, 2, 3) or access[1]):
-            return True
-
-    @monitor_network_state
-    def get_objects(self):
-        """ Returns all references used in filters.
-        """
-        self.__cursor.execute("exec [technics].[get_objects]")
-        return self.__cursor.fetchall()
-
-    @monitor_network_state
-    def get_references(self):
-        """ Returns all references used in filters.
-        """
-        self.__cursor.execute("exec [technics].[get_references]")
+        self.__cursor.execute("exec [technics].[get_technics_info]")
         return self.__cursor.fetchall()
 
     @monitor_network_state
