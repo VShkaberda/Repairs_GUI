@@ -150,7 +150,7 @@ class RepairTk(tk.Tk):
         self.iconbitmap('resources/repairs.ico')
         # handle the window close event
         self.protocol("WM_DELETE_WINDOW", self.quit_with_confirmation)
-        # extend Ctrc+C/V/X to other keyboards
+        # extend Ctrl+C/V/X to other keyboards
         self.bind_all("<Key>", self._onKeyRelease, '+')
         # Customize header style (used in PreviewForm)
         style = ttk.Style()
@@ -266,13 +266,13 @@ class RepairApp():
 
     def _create_refs(self):
         """ Create references used in filters. """
-        self.list_mfrs = ('Все', *self.refs['ListMfrs'])
-        self.list_rc = ('Все', *self.refs['ListObjects'])
-        self.list_owners = ('Все', *self.refs['ListTechnicsOwners'])
-        self.list_tech_types = ('Все', *self.refs['ListTechnicsTypes'])
-        self.list_people = ('Все', *self.refs['People'])
+        self.list_mfrs = ('Все', *self.refs.get('ListMfrs', ()))
+        self.list_rc = ('Все', *self.refs.get('ListObjects', ()))
+        self.list_owners = ('Все', *self.refs.get('ListTechnicsOwners', ()))
+        self.list_tech_types = ('Все', *self.refs.get('ListTechnicsTypes', ()))
+        self.list_people = ('Все', *self.refs.get('People', ()))
         self.list_status = ('Все', *self.refs['status_list'])
-        self.list_store_types = ('Все', *self.refs['TypeStore'])
+        self.list_store_types = ('Все', *self.refs.get('TypeStore', ()))
 
     def _format_float(self, sum_float):
         return '{:,.2f}'.format(sum_float).replace(',', ' ').replace('.', ',')
@@ -530,7 +530,6 @@ class RepairApp():
         options - dictionary, kwargs that will be sent to frame.
         """
         newlevel = tk.Toplevel(self.root)
-        newlevel.transient(self.root)  # disable minimize/maximize buttons
         newlevel.title(title)
         newlevel.bind('<Escape>', lambda e, w=newlevel: w.destroy())
         frame(newlevel, **options)
@@ -1096,10 +1095,12 @@ if __name__ == '__main__':
     UserInfo = namedtuple('UserInfo', ['UserID', 'ShortUserName',
                                        'AccessType', 'isSuperUser'])
     conn = DBConnect(server='s-kv-center-s59', db='AnalyticReports')
-#    root = RepairTk()
-#    app = RepairApp(root=root,
-#                    connection=conn,
-#                    user_info=UserInfo(24, 'TestName', 1, 1),
-#                    references = {}
-#                    )
-#    app.run()
+    root = RepairTk()
+    app = RepairApp(root=root,
+                    connection=conn,
+                    user_info=UserInfo(24, 'TestName', 1, 1),
+                    references = {'status_list': {'Созд.': 1,
+                                                  'Фикс.': 2,
+                                                  'Удал.': 3}}
+                    )
+    app.run()
