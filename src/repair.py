@@ -14,7 +14,23 @@ import tkRepairs as tkr
 
 
 def main():
-    conn = DBConnect(server='s-kv-center-s59', db='AnalyticReports')
+    # Reading config and setting parameters
+    config = {}
+    try:
+        with open('config.ini', 'r') as f:
+            for line in f:
+                # Ignore lines started with "#" and blank lines
+                if not line.startswith('#') and line.strip():
+                    k = line[:line.index(':')].strip()
+                    v = line[line.index(':')+1:].strip()
+                    config[k] = v
+
+    except ValueError:
+        writelog('Error: config.ini have unappropriate lines: ' + line)
+        sys.exit(1)
+
+    conn = DBConnect(server=config['server'],
+                     db=config['db'])
     UserInfo = namedtuple('UserInfo', ['UserID', 'ShortUserName',
                                        'AccessType', 'isSuperUser'])
     refs = defaultdict(dict)
