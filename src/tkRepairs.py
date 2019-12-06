@@ -332,6 +332,23 @@ class RepairApp():
         scrolltable_h.pack(side=tk.BOTTOM, fill=tk.X)
         scrolltable_v.pack(side=tk.RIGHT, fill=tk.Y)
 
+    @deco_check_conn
+    def _load_refs(self):
+        """ Load references for creating-editing repairs. """
+        with self.conn as sql:
+            tech_info = sql.get_technics_info()
+            tech_info = dict((data[0], data[1:]) for data in tech_info)
+            measure_units = sql.get_measure_units()
+            measure_units = dict((data[0], data[1]) for data in measure_units)
+            objects = sql.get_objects()
+            objects = dict((data[1:], data[0]) for data in objects)
+        options = {'conn': self.conn,
+                   'userID': self.UserID,
+                   'tech_info': tech_info,
+                   'measure_units': measure_units,
+                   'objects': objects}
+        return options
+
     def _make_buttons_frame(self):
         """ Bottom frame with status, version, user info etc.
         """
@@ -343,7 +360,7 @@ class RepairApp():
         bt1.pack(side=tk.LEFT, padx=15, pady=5)
 
         bt2 = ttk.Button(buttons_frame, text="Создать копию", width=15,
-                         command=self.root.destroy)
+                         command=self._popup_create_copy_form)
         bt2.pack(side=tk.LEFT, padx=15, pady=5)
 
         bt3 = ttk.Button(buttons_frame, text="Редактировать", width=15,
@@ -436,6 +453,7 @@ class RepairApp():
         self.table.pack(expand=True, fill=tk.BOTH)
         head = self.table["columns"]
         msg = 'Heading order must be reviewed. Wrong heading: '
+        assert head[0] == 'ID', '{}ID'.format(msg)
         assert head[3] == 'StatusID', '{}StatusID'.format(msg)
 
         main_label.pack(side=tk.TOP, expand=False, anchor=tk.NW)
@@ -494,20 +512,21 @@ class RepairApp():
                              title='Ремонт техники v. ' + __version__,
                              width=400, height=140)
 
-    @deco_check_conn
+    def _popup_create_copy_form(self, event=None):
+        curRow = self.table.focus()
+        if not curRow:
+            return
+        options = self._load_refs()
+        options['current_repairID'] = self.table.item(curRow).get('values')[0]
+        self._raise_Toplevel(frame=CreateCopyFrame,
+                             title='Данные о ремонте',
+                             width=800, height=400,
+                             static_geometry=False,
+                             refresh_after=True,
+                             options=options)
+
     def _popup_create_form(self, event=None):
-        with self.conn as sql:
-            tech_info = sql.get_technics_info()
-            tech_info = dict((data[0], data[1:]) for data in tech_info)
-            measure_units = sql.get_measure_units()
-            measure_units = dict((data[0], data[1]) for data in measure_units)
-            objects = sql.get_objects()
-            objects = dict((data[1:], data[0]) for data in objects)
-        options = {'conn': self.conn,
-                   'userID': self.UserID,
-                   'tech_info': tech_info,
-                   'measure_units': measure_units,
-                   'objects': objects}
+        options = self._load_refs()
         self._raise_Toplevel(frame=CreateFrame,
                              title='Данные о ремонте',
                              width=800, height=400,
@@ -539,7 +558,6 @@ class RepairApp():
         newlevel.grab_set()
         if refresh_after:
             self.root.wait_window(newlevel)
-            print('refreshing...')
             self._refresh()
 
     def _refresh(self):
@@ -662,7 +680,8 @@ class CreateFrame(tk.Frame):
         # parameter to control SN correctness to prevent _create execution
         self.is_sn_correct = False
 
-        main_label = tk.Label(self, text='Данные о ремонте', width=20,
+        frame_name = self._get_frame_name()
+        main_label = tk.Label(self, text=frame_name, width=20,
                               anchor=tk.CENTER, font=('Arial', 12, 'bold'))
         main_label.grid(row=0, column=0, columnspan=4, pady=10, padx=20)
 
@@ -931,6 +950,9 @@ class CreateFrame(tk.Frame):
                     messagetitle, 'Произошла ошибка'
             )
 
+    def _get_frame_name(self):
+        return 'Данные о ремонте'
+
     def _get_repair_info(self):
         """ Takes info from filled fields and returns it as dictionary
              in format appropriated for server.
@@ -1088,16 +1110,72 @@ class CreateFrame(tk.Frame):
             return e
 
 
+class CreateCopyFrame(CreateFrame):
+    def __init__(self, parent, conn, userID, tech_info, measure_units, objects,
+                 current_repairID):
+        super().__init__(parent, conn, userID, tech_info, measure_units,
+                         objects)
+        self.current_repairID = current_repairID
+        with self.conn as sql:
+            current_repair_info = sql.get_current_repair(self.current_repairID)
+        self._set_current_repair(*current_repair_info[0])
+
+    def _set_current_repair(self, sn_entry, outfitorder, tech_type, model,
+                            owner, mfr, date_broken, workhours, rc, store,
+                            number_units, units_measure, faultdesc, perfwork,
+                            date_repair_end):
+        self.sn_entry.var.set(sn_entry)
+        self.outfitorder.set(outfitorder)
+        self.tech_type.set(tech_type)
+        self.model.set(model)
+        self.owner.set(owner)
+        self.mfr.set(mfr)
+        self.date_broken.set(date_broken)
+        self.workhours.set(workhours)
+        self.rc.set(rc)
+        self.store.set(store)
+        self.number_units.set(number_units)
+        self.units_measure.set(units_measure)
+        self.faultdesc.set(faultdesc)
+        self.perfwork.set(perfwork)
+        self.date_repair_end.set(date_repair_end)
+        self.is_sn_correct = True
+
+
+class UpdateRepairFrame(CreateCopyFrame):
+    def __init__(self, parent, conn, userID, tech_info, measure_units, objects,
+                 repairID):
+        super().__init__(parent, conn, userID, tech_info, measure_units,
+                         objects)
+        self.repairID = repairID
+
+    def _make_buttons(self):
+        bt1 = ttk.Button(self, text='Сохранить', width=26,
+                         command=self._create, style='ButtonGreen.TButton')
+        bt1.grid(row=11, column=0, pady=10)
+
+        bt2 = ttk.Button(self, text='Сохранить (зафиксировать)', width=26,
+                         command=lambda: self._create(is_fixed=True),
+                         style='ButtonGreen.TButton')
+        bt2.grid(row=11, column=1, pady=10)
+
+        bt3 = ttk.Button(self, text='Очистить всё', width=15,
+                         command=self._clear_all, state='disabled')
+        bt3.grid(row=11, column=2, pady=10)
+
+        bt4 = ttk.Button(self, text='Закрыть', width=15,
+                         command=self.parent.destroy)
+        bt4.grid(row=11, column=3, pady=10, padx=10, sticky=tk.E)
+
+
 if __name__ == '__main__':
-    from db_connect import DBConnect
     from collections import namedtuple
 
     UserInfo = namedtuple('UserInfo', ['UserID', 'ShortUserName',
                                        'AccessType', 'isSuperUser'])
-    conn = DBConnect(server='s-kv-center-s59', db='AnalyticReports')
     root = RepairTk()
     app = RepairApp(root=root,
-                    connection=conn,
+                    connection=None,
                     user_info=UserInfo(24, 'TestName', 1, 1),
                     references = {'status_list': {'Созд.': 1,
                                                   'Фикс.': 2,

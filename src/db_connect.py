@@ -120,6 +120,16 @@ class DBConnect(object):
         return self.__cursor.fetchall()
 
     @monitor_network_state
+    def get_current_repair(self, repairID):
+        """ Returns info about repairID.
+        """
+        query = '''
+        exec [technics].[get_current_repair] @repairID = ?
+        '''
+        self.__cursor.execute(query, repairID)
+        return self.__cursor.fetchall()
+
+    @monitor_network_state
     def get_measure_units(self):
         """ Returns unis of measure list.
         """
