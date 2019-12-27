@@ -66,7 +66,7 @@ class DBConnect(object):
             return
 
     @monitor_network_state
-    def create_repair(self, *, userID, SN, ObjectID, date_broken,
+    def create_repair(self, *, userID, SN, date_broken,
                       date_repair_finished, OutfitOrder, WorkingHours,
                       UnitOfMeasureID, NumberOfUnits, FaultDescription,
                       PerformedWork, statusID):
@@ -75,7 +75,6 @@ class DBConnect(object):
         query = '''
         exec technics.CREATE_REPAIR @UserID = ?,
                                     @SN  = ?,
-                                    @ObjectID = ?,
                                     @date_broken = ?,
                                     @date_repair_finished = ?,
                                     @OutfitOrder = ?,
@@ -87,7 +86,7 @@ class DBConnect(object):
                                     @StatusID = ?
             '''
         try:
-            self.__cursor.execute(query, userID, SN, ObjectID, date_broken,
+            self.__cursor.execute(query, userID, SN, date_broken,
                       date_repair_finished, OutfitOrder, WorkingHours,
                       UnitOfMeasureID, NumberOfUnits, FaultDescription,
                       PerformedWork, statusID)
@@ -109,12 +108,11 @@ class DBConnect(object):
             return True
 
     @monitor_network_state
-    def get_allowed_rc_and_store(self, sn, date_broken):
+    def get_object_owner_info(self, sn, date_broken):
         """ Returns unis of measure list.
         """
         query = '''
-        exec [technics].[get_allowed_rc_and_store] @SN = ?,
-                                                   @date_broken = ?
+        exec [technics].[get_object_owner_info] @SN = ?, @date_broken = ?
         '''
         self.__cursor.execute(query, sn, date_broken)
         return self.__cursor.fetchall()
@@ -198,7 +196,7 @@ class DBConnect(object):
         return self.__cursor.fetchall()
 
     @monitor_network_state
-    def update_repair(self, UserID, RepairID, SN, ObjectID, date_broken,
+    def update_repair(self, UserID, RepairID, SN, date_broken,
                       date_repair_finished, OutfitOrder, WorkingHours,
                       UnitOfMeasureID, NumberOfUnits, FaultDescription,
                       PerformedWork, StatusID):
@@ -208,7 +206,6 @@ class DBConnect(object):
         exec technics.UPDATE_REPAIR @UserID = ?,
                                     @RepairID = ?,
                                     @SN  = ?,
-                                    @ObjectID = ?,
                                     @date_broken = ?,
                                     @date_repair_finished = ?,
                                     @OutfitOrder = ?,
@@ -220,7 +217,7 @@ class DBConnect(object):
                                     @StatusID = ?
             '''
         try:
-            self.__cursor.execute(query, UserID, RepairID, SN, ObjectID, date_broken,
+            self.__cursor.execute(query, UserID, RepairID, SN, date_broken,
                       date_repair_finished, OutfitOrder, WorkingHours,
                       UnitOfMeasureID, NumberOfUnits, FaultDescription,
                       PerformedWork, StatusID)

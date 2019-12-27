@@ -749,8 +749,8 @@ class CreateFrame(tk.Frame):
             font=('Arial', 9), selectmode='day', borderwidth=2, locale='ru_RU',
             textvariable=self.date_broken)
         self.date_broken.set('')
-        self.date_broken_entry.bind("<FocusOut>", self._get_rc_and_store)
-        #self.date_broken.trace("w", self._get_rc_and_store)
+        self.date_broken_entry.bind("<FocusOut>", self._get_rc_store_owner)
+        #self.date_broken.trace("w", self._get_rc_store_owner)
         self.date_broken_entry.grid(row=5, column=1, pady=5, padx=5)
 
         workhours_label = tk.Label(self, text='Текущие моточасы',
@@ -844,17 +844,17 @@ class CreateFrame(tk.Frame):
 
     def _check_SN(self, event):
         self.date_broken.set('')
+        self.owner.set('')
         self.rc.set('')
         self.store.set('')
         sn = self.sn_entry.get()
-        objs = (self.tech_type, self.model, self.owner, self.mfr)
+        objs = (self.tech_type, self.model, self.mfr)
         # determine widget name focused next
         new_focus = str(self.focus_get()).split('!')[-1]
         # ignore check for inner listbox / clear and exit buttons
         # include 'None' to ignore check if user clicked outside CreateFrame
         if not sn or new_focus in ('None', 'lbox', 'button3', 'button4'):
             self.date_broken_entry.configure(state='disabled')
-            self._set_rc_and_store_state(state="disabled")
             for obj in objs:
                 obj.set('')
             return
@@ -962,17 +962,8 @@ class CreateFrame(tk.Frame):
         units_m = self.units_measure.get()
         date_broken = self.date_broken_entry.get_date()
         date_broken = datetime.combine(date_broken, datetime.min.time())
-        try:
-            objectID = self.objects[(self.rc.get(), self.store.get())]
-        except KeyError as e:
-            messagebox.showerror(title='Ошибка',
-                            message=('Некорректный объект:\n{}'
-                                     .format(e))
-                                )
-            raise
         repair_info = {
             'SN': self.sn_entry.get().strip(),
-            'ObjectID': objectID,
             'date_broken': self._convert_date(self.date_broken.get()),
             'date_repair_finished': (self._convert_date(self.date_broken.get())
                 if self.date_repair_end_active.get() else None),
@@ -985,18 +976,17 @@ class CreateFrame(tk.Frame):
             }
         return repair_info
 
-    def _get_rc_and_store(self, *args, **kwargs):
-        """ Shows rc and store that corresponds to chosen date and serial num.
-            If 1 option is available, choose it, otherwise make box active.
+    def _get_rc_store_owner(self, *args, **kwargs):
+        """ Shows rc, store and owner corresponding to chosen date and SN.
         """
         sn = self.sn_entry.get()
         new_focus = str(self.focus_get()).split('!')[-1]
         # do nothing if user clicked on calendar or clear/exit buttons
         # include 'None' to ignore check if user clicked outside CreateFrame
         if new_focus in ('None', 'calendar', 'button3', 'button4'):
+            self.owner.set('')
             self.rc.set('')
             self.store.set('')
-            self._set_rc_and_store_state(state="disabled")
             return
         try:
             date_broken = self._convert_date(self.date_broken.get())
@@ -1005,20 +995,15 @@ class CreateFrame(tk.Frame):
         if not date_broken:
             return
         with self.conn as sql:
-            self.allowed_objects = sql.get_allowed_rc_and_store(sn, date_broken)
+            self.allowed_objects = sql.get_object_owner_info(sn, date_broken)
         if len(self.allowed_objects) == 0:
             messagebox.showinfo(title='Нет привязки',
                 message=('В указанную дату техника не привязана ни к одному РЦ')
                                 )
-        elif len(self.allowed_objects) == 1:
-            self.rc.set(self.allowed_objects[0][0])
-            self.store.set(self.allowed_objects[0][1])
-            self._set_rc_and_store_state(state="disabled")
         else:
-            self.rc.set('')
-            self.store.set('')
-            self.rc_box['values'], self.store_box['values'] = (*zip(*self.allowed_objects),)
-            self._set_rc_and_store_state(state="readonly")
+            self.owner.set(self.allowed_objects[0][0])
+            self.rc.set(self.allowed_objects[0][1])
+            self.store.set(self.allowed_objects[0][2])
 
     def _make_buttons(self):
         bt1 = ttk.Button(self, text='Сохранить', width=26,
@@ -1037,11 +1022,6 @@ class CreateFrame(tk.Frame):
         bt4 = ttk.Button(self, text='Закрыть', width=15,
                          command=self.parent.destroy)
         bt4.grid(row=11, column=3, pady=10, padx=10, sticky=tk.E)
-
-    def _set_rc_and_store_state(self, state):
-        """ Change set of rc and store boxes to "state"."""
-        self.rc_box.configure(state=state)
-        self.store_box.configure(state=state)
 
     def _toggle_date_repair_end(self):
         """ Toggle states of self.date_repair_end_entry.
