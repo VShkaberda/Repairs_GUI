@@ -1019,9 +1019,9 @@ class CreateFrame(tk.Frame):
                          command=self._clear_all)
         bt3.grid(row=11, column=2, pady=10)
 
-        bt4 = ttk.Button(self, text='Закрыть', width=15,
+        self.bt4 = ttk.Button(self, text='Закрыть', width=15,
                          command=self.parent.destroy)
-        bt4.grid(row=11, column=3, pady=10, padx=10, sticky=tk.E)
+        self.bt4.grid(row=11, column=3, pady=10, padx=10, sticky=tk.E)
 
     def _toggle_date_repair_end(self):
         """ Toggle states of self.date_repair_end_entry.
@@ -1105,12 +1105,16 @@ class CreateCopyFrame(CreateFrame):
                             number_units, units_measure, faultdesc, perfwork,
                             date_repair_end):
         self.sn_entry.var.set(sn_entry)
+        # next 3 lines imitate behaviour of _check_SN
+        self.sn_entry.destroy_listbox()
+        self.date_broken_entry.configure(state='readonly')
+        self.is_sn_correct = True
         self.outfitorder.set(outfitorder)
         self.tech_type.set(tech_type)
         self.model.set(model)
         self.owner.set(owner)
         self.mfr.set(mfr)
-        self.date_broken.set(date_broken)
+        self.date_broken_entry.set_date(date_broken)
         self.workhours.set(workhours)
         self.rc.set(rc)
         self.store.set(store)
@@ -1118,8 +1122,11 @@ class CreateCopyFrame(CreateFrame):
         self.units_measure.set(units_measure)
         self.faultdesc.set(faultdesc)
         self.perfwork.set(perfwork)
-        self.date_repair_end.set(date_repair_end)
-        self.is_sn_correct = True
+        if date_repair_end:
+            self.date_repair_end_entry.set_date(date_repair_end)
+        else:
+            self.date_repair_end_active.set(0)
+            self.date_repair_end_entry.configure(state="disabled")
 
 
 class UpdateRepairFrame(CreateCopyFrame):

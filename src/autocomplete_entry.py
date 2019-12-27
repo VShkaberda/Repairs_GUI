@@ -30,9 +30,7 @@ class AutocompleteEntry(tk.Entry):
     def changed(self, name, index, mode):
 
         if self.var.get() == '':
-            with suppress(AttributeError):
-                self.lb.destroy()
-            self.lb_up = False
+            self.destroy_listbox()
         else:
             # translate cyrillic to latin
             sn_ = self.var
@@ -52,17 +50,13 @@ class AutocompleteEntry(tk.Entry):
                     self.lb.insert(tk.END, w)
             else:
                 if self.lb_up:
-                    with suppress(AttributeError):
-                        self.lb.destroy()
-                    self.lb_up = False
+                    self.destroy_listbox()
 
     def selection(self, event):
 
         if self.lb_up:
             self.var.set(self.lb.get(tk.ACTIVE))
-            with suppress(AttributeError):
-                self.lb.destroy()
-            self.lb_up = False
+            self.destroy_listbox()
             self.selection_clear()
             self.icursor(tk.END)
             self.focus_set()
@@ -94,6 +88,12 @@ class AutocompleteEntry(tk.Entry):
     def comparison(self):
         pattern = re.compile('.*' + self.var.get() + '.*')
         return [w for w in self.lista if re.match(pattern, w)]
+
+    def destroy_listbox(self):
+        with suppress(AttributeError):
+            self.lb.destroy()
+        self.lb_up = False
+
 
 
 if __name__ == '__main__':
